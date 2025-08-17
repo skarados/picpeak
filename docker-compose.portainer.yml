@@ -1,8 +1,6 @@
 services:
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: picpeak-backend:latest
     container_name: picpeak-backend
     restart: unless-stopped
     environment:
@@ -90,14 +88,7 @@ services:
       - picpeak-network
 
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        - VITE_API_URL=${VITE_API_URL:-http://localhost:3001/api}
-        - VITE_UMAMI_URL=${VITE_UMAMI_URL:-}
-        - VITE_UMAMI_WEBSITE_ID=${VITE_UMAMI_WEBSITE_ID:-}
-        - VITE_UMAMI_SHARE_URL=${VITE_UMAMI_SHARE_URL:-}
+    image: picpeak-frontend:latest
     container_name: picpeak-frontend
     restart: unless-stopped
     environment:
