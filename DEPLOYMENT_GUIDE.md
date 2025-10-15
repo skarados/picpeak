@@ -1,6 +1,65 @@
 # 🚀 PicPeak Deployment Guide
 
-This guide covers deploying PicPeak using Docker Compose with direct port exposure. For internet-facing deployments, you'll need to add a reverse proxy (nginx, Traefik, Caddy, etc.) for SSL/HTTPS.
+This guide covers multiple deployment options for PicPeak, from simple local setups to production-ready configurations.
+
+## 🎯 Quick Start - Simple Setup (Recommended for Beginners)
+
+For the easiest installation without Docker or complex configurations, use our **unified setup script**:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/the-luap/picpeak/main/scripts/picpeak-setup.sh -o picpeak-setup.sh && \
+chmod +x picpeak-setup.sh && \
+sudo ./picpeak-setup.sh
+```
+
+This automated script handles everything including:
+- Choice between Docker or Native installation
+- OS detection and dependency installation
+- Database setup and service configuration
+- SSL/HTTPS setup (optional)
+
+Perfect for:
+- Small to medium deployments
+- Local or VPS installations  
+- Users new to server management
+- Quick testing and evaluation
+
+👉 **See [SIMPLE_SETUP.md](./SIMPLE_SETUP.md) for detailed instructions.**
+
+---
+
+## 🐳 Docker Compose Deployment
+
+### Option 1: Using Pre-built Images (Recommended)
+
+PicPeak provides official Docker images via GitHub Container Registry for quick deployment without building:
+
+```bash
+# Clone repository for configuration files
+git clone https://github.com/the-luap/picpeak.git
+cd picpeak
+
+# Copy and configure environment
+cp .env.example .env
+nano .env  # Edit with your values
+
+# Use pre-built images deployment
+docker compose -f docker-compose.production.yml up -d
+```
+
+The production compose file uses:
+- **Backend**: `ghcr.io/the-luap/picpeak/backend:latest`
+- **Frontend**: `ghcr.io/the-luap/picpeak/frontend:latest`
+
+Available tags:
+- `latest` - Latest stable release
+- `main` - Latest main branch build
+- `develop` - Development branch (may be unstable)
+- `v1.0.0` - Specific version tags
+
+### Option 2: Building from Source
+
+If you need to customize the application or the pre-built images aren't available, you can build locally:
 
 ## 📋 Table of Contents
 
@@ -8,9 +67,11 @@ This guide covers deploying PicPeak using Docker Compose with direct port exposu
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
 - [Deployment](#deployment)
+- [First Login](#first-login)
 - [Reverse Proxy Setup](#reverse-proxy-setup)
 - [Maintenance](#maintenance)
 - [Troubleshooting](#troubleshooting)
+ - [External Media Library](#external-media-library)
 
 ## Prerequisites
 
@@ -20,6 +81,75 @@ This guide covers deploying PicPeak using Docker Compose with direct port exposu
 - At least 2GB RAM and 20GB storage
 
 ## 🚀 Quick Start
+
+### Method 1: Using Pre-built Images (Fastest)
+
+1. **Clone the repository for configs**
+   ```bash
+   git clone https://github.com/the-luap/picpeak.git
+   cd picpeak
+   ```
+
+2. **Set up environment**
+   ```bash
+   cp .env.example .env
+   nano .env  # Edit with your values
+   ```
+
+3. **Create required directories**
+   ```bash
+   mkdir -p events/active events/archived data logs backup storage
+   chmod -R 755 events data logs backup storage
+   ```
+
+4. **Deploy using pre-built images**
+   ```bash
+   docker compose -f docker-compose.production.yml up -d
+   ```
+
+5. **Check logs**
+   ```bash
+   docker compose -f docker-compose.production.yml logs -f
+   ```
+
+## External Media Library
+
+PicPeak can reference an existing, read‑only media library mounted into the backend container. This avoids copying originals into PicPeak storage.
+
+- Map your host library path to the container as read‑only in `docker-compose.production.yml`:
+  - Add volume under `backend`: `- ${EXTERNAL_MEDIA}:/external-media:ro`
+  - Add backend env: `EXTERNAL_MEDIA_ROOT=/external-media`
+- In `.env`, set:
+  - `EXTERNAL_MEDIA=/mnt/photos` (example host path)
+  - `EXTERNAL_MEDIA_ROOT=/external-media`
+
+Usage:
+- In Admin → Events, set “Source Mode” to “Reference (external folder)”, select a folder under `/external-media`, then import to index and generate thumbnails. Originals stay in your library.
+
+Backups and Archives:
+- Backups only include data under `STORAGE_PATH` and exclude external originals. The backup manifest includes `metadata.external_references = { excluded: true, events: N, photos: M }` and the Admin UI surfaces a warning.
+- Archiving reference events creates a manifest‑only ZIP and deletes thumbnails for that event. External originals are never moved or deleted.
+
+Local (npm) setup (no Docker):
+
+1. Create or choose a folder that contains your external originals, e.g. `/Users/you/Pictures/picpeak-external` (macOS/Linux) or `C:\\Pictures\\picpeak-external` (Windows).
+2. In `backend/.env` (or your shell), set:
+   - `EXTERNAL_MEDIA_ROOT=/absolute/path/to/picpeak-external`
+   - Ensure `STORAGE_PATH` points to your PicPeak storage (defaults to `./storage`).
+3. Start services from source:
+   - Backend: `cd backend && npm install && npm run migrate && JWT_SECRET=... npm start`
+   - Frontend: `cd frontend && npm install && npm run dev` (or build + serve)
+4. In Admin → Events:
+   - Create an event, set “Source Mode” to “Reference (external folder)”.
+   - Use the folder picker to browse under your `EXTERNAL_MEDIA_ROOT` and select the subfolder to reference.
+   - Click “Import from selected folder” to index files and generate thumbnails on demand.
+
+Notes:
+- PicPeak only reads from `EXTERNAL_MEDIA_ROOT`; it never modifies or deletes your originals there.
+- Thumbnails are generated under `STORAGE_PATH/thumbnails` and are included in backups; originals in `EXTERNAL_MEDIA_ROOT` are excluded.
+- On Windows, use absolute paths (e.g., `C:\\Photos\\Library`) for `EXTERNAL_MEDIA_ROOT`.
+
+### Method 2: Building from Source
 
 1. **Clone the repository**
    ```bash
@@ -39,8 +169,9 @@ This guide covers deploying PicPeak using Docker Compose with direct port exposu
    chmod -R 755 events data logs backup storage
    ```
 
-4. **Deploy**
+4. **Build and deploy**
    ```bash
+   docker compose build
    docker compose up -d
    ```
 
@@ -70,17 +201,63 @@ openssl rand -base64 32 | tr -d '$'
 - Escape `$` as `$$` (e.g., `Pass$$word` instead of `Pass$word`)
 - Quote the entire value: `DB_PASSWORD='Pass$word'` (less reliable)
 
+### Public Landing Page
+
+- `npm run migrate` now seeds three general settings: `general_public_site_enabled`, `general_public_site_html`, and `general_public_site_custom_css` so existing installs stay disabled by default.
+- Configure the feature from **Admin → CMS Pages**. The landing page panel exposes the toggle, HTML editor, optional CSS overrides, preview, and a reset-to-default action.
+- All HTML and CSS submitted through the UI is sanitized server-side. Scripts, inline event handlers, disallowed attributes, `@import` rules, and `javascript:` URLs are stripped before content is cached or rendered.
+- Resetting via the UI (or calling `POST /api/admin/settings/public-site/reset`) restores the bundled template and clears custom CSS.
+- The landing page response is cached in-memory. Override the default 60s cache window by setting `PUBLIC_SITE_CACHE_TTL_MS` (milliseconds) in your environment if you need faster cache busting.
+- When the toggle is off PicPeak continues to serve the SPA/login redirect at `/`, preserving legacy behaviour until you explicitly enable the feature.
+
+### Backend Configuration (.env)
 Update `.env` with:
 - `JWT_SECRET` - Authentication secret (REQUIRED - generate a secure random value)
 - `DB_PASSWORD` - PostgreSQL password
 - `REDIS_PASSWORD` - Redis password
 - `SMTP_*` - Email configuration
-- **CRITICAL URL Configuration** (must match your deployment):
-  - `FRONTEND_URL` - Frontend URL with port (e.g., `http://yourdomain.com:3000`)
-  - `ADMIN_URL` - Backend URL with port (e.g., `http://yourdomain.com:3001`)
-  - `VITE_API_URL` - Backend API URL (e.g., `http://yourdomain.com:3001/api`)
+- **URL Configuration** (for backend CORS):
+  - `FRONTEND_URL` - Frontend origin (use full URL with scheme, no trailing slash)
+    - Example (Docker): `http://localhost:3000`
+  - `ADMIN_URL` - Admin origin (same as `FRONTEND_URL` for Docker; full URL, no trailing slash)
+    - Example (Docker): `http://localhost:3000`
+  
+  Notes:
+  - Do not include trailing `/` (e.g., use `http://host:3000`, not `http://host:3000/`).
+  - Always include the scheme (`http://` or `https://`).
+  - The backend compares origins strictly for CORS; malformed values will cause login requests to fail with 500.
 
-⚠️ **IMPORTANT**: These URLs MUST include the correct ports and match exactly how users will access your site. Mismatched URLs will cause CORS errors and login failures!
+#### External Database Example
+To use an external PostgreSQL instead of the bundled container, set the following in `.env` and ensure the `postgres` service is disabled or removed:
+
+```env
+DB_HOST=db.example.com
+DB_PORT=5432
+DB_USER=picpeak
+DB_PASSWORD=change_me
+DB_NAME=picpeak_prod
+```
+
+Compose uses these values via `env_file: .env`. The backend service also defaults `DB_HOST=${DB_HOST:-postgres}` so if you don’t set `DB_HOST` it will use the bundled `postgres` container.
+
+### Frontend Configuration (frontend/.env)
+Create `frontend/.env` from `frontend/.env.example`:
+```bash
+cp frontend/.env.example frontend/.env
+```
+
+Update `frontend/.env` with:
+- `VITE_API_URL` - Backend API URL
+  - Docker (pre-built images) and production behind reverse proxy: `/api` (recommended; avoids CORS and matches the frontend Nginx proxy in the image)
+  - Local dev (Vite): `http://localhost:3001` or `/api` if proxying through a dev proxy
+
+Note: When using pre-built frontend images, runtime container env does not change the already-built JS. Prefer the default `/api` and let the frontend Nginx proxy forward to the backend.
+
+⚠️ **IMPORTANT PORT CONFIGURATION**: 
+- The frontend runs on port **3000** in Docker (exposed via nginx)
+- The backend API runs on port **3001**
+- The frontend `.env` file MUST point to the correct backend port (3001)
+- Default `.env.example` is configured for Docker deployment
 
 ### Email Configuration Examples
 
@@ -104,11 +281,28 @@ SMTP_PASS=your-sendgrid-api-key
 
 ## 📦 Deployment
 
-### Build and Start Services
+### Using Pre-built Images (Fastest)
 
 ```bash
-# Build images
+# Pull latest images from GitHub Container Registry
+docker pull ghcr.io/the-luap/picpeak/backend:latest
+docker pull ghcr.io/the-luap/picpeak/frontend:latest
+
+# Start services using production compose file
+docker compose -f docker-compose.production.yml up -d
+
+# View running containers
+docker compose ps
+```
+
+### Building from Source (For Customization)
+
+```bash
+# Build images locally
 docker compose build
+
+# Or build with no cache for clean build
+docker compose build --no-cache
 
 # Start all services
 docker compose up -d
@@ -120,46 +314,43 @@ docker compose ps
 ### Access Points
 
 By default, services are exposed on:
-- Frontend: http://localhost:3000
-- Backend/API: http://localhost:3001
+- Frontend (UI + Admin): http://localhost:3000 (admin at `/admin`)
+- Backend/API: http://localhost:3001 (API only; no UI routes)
 - PostgreSQL: localhost:5432 (if needed)
 - Redis: localhost:6379 (if needed)
 
 ### Initial Admin Setup
 
-When deploying for the first time, an admin account is automatically created with a secure random password. You need to retrieve this password to access the admin panel.
+When deploying for the first time, an admin account is automatically created with a secure, randomly generated password. This password is displayed in the Docker logs during initialization and **must be changed** on first login.
 
-#### Finding the Admin Password
+#### Finding the Auto-Generated Admin Password
 
-**Option 1: Check the backend logs** (recommended)
+The admin password is automatically generated during the first startup and displayed in the backend container logs. Here's how to find it:
+
+**Option 1: Search Docker logs for admin password** (recommended)
 ```bash
-# View the initial setup logs
-docker compose logs backend | grep -A 10 "Admin user created"
+# Find the auto-generated admin password in logs
+docker compose logs backend | grep "Admin password"
 ```
 
 You should see output like:
 ```
-========================================
-✅ Admin user created successfully!
-========================================
-Email: admin@example.com
-Password: BraveTiger6231!
-
-⚠️  IMPORTANT:
-1. Save these credentials securely
-2. Please change the password after first login
-========================================
+✅ Admin password generated: BraveTiger6231!
 ```
 
-**Note**: You login with the **email address**, not a username!
-
-**Option 2: Check the saved credentials file**
+**Option 2: View the complete initialization logs**
 ```bash
-# The password is saved in the backend container
+# View the complete admin setup logs
+docker compose logs backend | grep -A 10 "Admin user created"
+```
+
+**Option 3: Check the saved credentials file**
+```bash
+# The password is also saved in the backend container
 docker exec picpeak-backend cat data/ADMIN_CREDENTIALS.txt
 ```
 
-**Option 3: Use the helper script**
+**Option 4: Use the helper script**
 ```bash
 # Show current admin username and email (password is hidden)
 docker exec picpeak-backend node scripts/show-admin-credentials.js
@@ -168,13 +359,78 @@ docker exec picpeak-backend node scripts/show-admin-credentials.js
 docker exec picpeak-backend node scripts/show-admin-credentials.js --reset
 ```
 
-#### Important Notes
+#### Important Security Notes
 
 - **Login requires the email address**, not username
-- The admin password is only shown once during initial setup
-- If you lose the password, use the `--reset` option to generate a new one
-- You must change the password on first login (enforced by the system)
-- Password requirements: minimum 12 characters, mixed case, numbers, and special characters
+- The admin password is only displayed once during initial setup
+- **Password change is MANDATORY** on first login - the system will force you to change it
+- If you lose the password before first login, use the `--reset` option to generate a new one
+- New password requirements: minimum 12 characters, mixed case, numbers, and special characters
+
+## 🔐 First Login
+
+After deployment, you must complete the first login process which includes mandatory password change for security.
+
+### Step 1: Locate Your Admin Password
+
+1. **Find the auto-generated password** from the credentials file:
+   ```bash
+   # Docker deployment
+   docker compose exec backend cat /app/data/ADMIN_CREDENTIALS.txt
+   
+   # Or directly from the host (if you have access)
+   cat data/ADMIN_CREDENTIALS.txt
+   ```
+
+2. **Note the admin email** (default: `admin@example.com` unless customized)
+
+### Step 2: Access Admin Panel
+
+1. Navigate to your frontend domain and open the admin section:
+   - `http://your-domain.com/admin` (behind reverse proxy)
+   - `http://localhost:3000/admin` (Docker local)
+   
+   The backend at `:3001` serves API only and does not serve the admin UI.
+2. Login using:
+   - **Email**: `admin@example.com` (or your custom admin email)
+   - **Password**: The auto-generated password from the logs
+
+### Step 3: Mandatory Password Change
+
+Upon first login, the system will **automatically redirect** you to change your password:
+
+1. **You cannot skip this step** - it's enforced for security
+2. Enter the current auto-generated password
+3. Create a new secure password meeting these requirements:
+   - Minimum 12 characters
+   - At least one uppercase letter
+   - At least one lowercase letter
+   - At least one number
+   - At least one special character (!@#$%^&*)
+
+### Security Best Practices for New Password
+
+- **Use a unique password** not used elsewhere
+- **Consider a password manager** for generation and storage
+- **Include mixed characters**: `MySecureP@ssw0rd2024!`
+- **Avoid personal information** (names, dates, etc.)
+- **Save securely** - you cannot recover this password easily
+
+### If You Lose Access
+
+If you lose your admin credentials after the first login, you'll need to manually reset the password in the database or create a new admin user through the database.
+
+**Note**: The credentials file (`ADMIN_CREDENTIALS.txt`) is only created during initial deployment and contains the first admin password. After changing the password, this file becomes outdated but is kept for reference. If you need to regenerate the password and file during a reinstall, re-run the installer with the `--force-admin-password-reset` flag:
+
+```bash
+# Native reinstall example
+sudo ./picpeak-setup.sh --native --force-admin-password-reset
+
+# Docker reinstall example
+sudo ./picpeak-setup.sh --docker --force-admin-password-reset
+```
+
+The flag calls `scripts/reset-admin-password.js` in non-interactive mode, writes a fresh random password into `data/ADMIN_CREDENTIALS.txt`, and prints the new credentials at the end of the installer run.
 
 #### Configuring Admin Email
 
@@ -218,7 +474,16 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # Backend API
+    # Frontend (serves UI and /admin/*)
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Backend API and protected resources
     location /api {
         proxy_pass http://localhost:3001;
         proxy_set_header Host $host;
@@ -226,17 +491,7 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
-
-    # Protected photos and uploads
     location ~ ^/(photos|thumbnails|uploads) {
-        proxy_pass http://localhost:3001;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
-
-    # Admin routes
-    location /admin {
         proxy_pass http://localhost:3001;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -357,14 +612,50 @@ The application includes a built-in backup service. Configure it in the admin pa
 
 ### Updates
 
+#### Method 1: Using Pre-built Images (Recommended)
+
+```bash
+# Pull latest changes (for configuration updates)
+git pull
+
+# Pull latest images from GitHub Container Registry
+docker compose -f docker-compose.production.yml pull
+
+# Restart with new images
+docker compose -f docker-compose.production.yml down
+docker compose -f docker-compose.production.yml up -d
+
+# Verify services are healthy
+docker compose -f docker-compose.production.yml ps
+```
+
+#### Method 2: Building from Source
+
 ```bash
 # Pull latest changes
 git pull
 
 # Rebuild and restart
 docker compose down
-docker compose build
+docker compose build --no-cache
 docker compose up -d
+
+# Verify services are healthy
+docker compose ps
+```
+
+#### Specific Version Updates
+
+To use a specific version of the images:
+
+```bash
+# Edit docker-compose.production.yml to specify version tags
+# Change: ghcr.io/the-luap/picpeak/backend:latest
+# To:     ghcr.io/the-luap/picpeak/backend:v1.0.0
+
+# Then pull and restart
+docker compose -f docker-compose.production.yml pull
+docker compose -f docker-compose.production.yml up -d
 ```
 
 ### Database Migrations
@@ -404,9 +695,10 @@ docker exec picpeak-backend npm run migrate
    - Should see `node server.js` process
 
 4. **Login After Fresh Install**:
-   - Check migration logs for generated credentials
-   - Username: `admin` or the email shown in logs
-   - Password: Shown during first migration (e.g., `SharpPhoenix9920$`)
+   - Check backend logs for auto-generated admin password: `docker compose logs backend | grep "Admin password"`
+   - Email: `admin@example.com` (or your custom admin email from .env)
+   - Password: Auto-generated and shown in logs (e.g., `BraveTiger6231!`)
+   - Remember: Password MUST be changed on first login
 
 5. **Complete Fix Sequence**:
    ```bash
